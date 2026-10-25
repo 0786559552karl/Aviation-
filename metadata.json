@@ -1,0 +1,6 @@
+{
+  "name": "Aviator Automated Bot & Strategy Analytics",
+  "description": "Automated Aviator betting bot, strategy simulator, real-time multiplier flight curve, predictive analytics, and risk management dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
