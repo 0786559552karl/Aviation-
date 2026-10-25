@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { TickDataPoint, AIRegime } from '../types/aviator';
-import { LineChart, DollarSign, Activity, Maximize2, ShieldAlert } from 'lucide-react';
+import { Activity } from 'lucide-react';
 
 interface TradingChartProps {
   ticks: TickDataPoint[];
@@ -15,20 +15,21 @@ interface TradingChartProps {
 }
 
 export const TradingChart: React.FC<TradingChartProps> = ({
-  ticks,
-  currentMultiplier,
-  currentStake,
-  targetMultiplier,
-  unrealizedPnL,
-  isFlying,
-  regime,
-  hasCashedOut,
-  cashedOutMultiplier,
+  ticks = [],
+  currentMultiplier = 1.0,
+  currentStake = 10.0,
+  targetMultiplier = 1.6,
+  unrealizedPnL = 0,
+  isFlying = false,
 }) => {
   const [chartMode, setChartMode] = useState<'EQUITY_PNL' | 'MULTIPLIER'>('EQUITY_PNL');
 
-  // Take recent 50 ticks for crisp per-second resolution
-  const recentTicks = ticks.slice(-50);
+  // Sanitize ticks array
+  const safeTicks = Array.isArray(ticks) && ticks.length > 0
+    ? ticks.filter((t) => t && Number.isFinite(t.equity) && Number.isFinite(t.multiplier))
+    : [{ timestamp: Date.now(), timeLabel: '00:00', multiplier: 1.0, unrealizedPnL: 0, equity: 500 }];
+
+  const recentTicks = safeTicks.slice(-50);
 
   const width = 640;
   const height = 240;
@@ -40,13 +41,24 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   // Compute scale boundaries
   const values =
     chartMode === 'EQUITY_PNL'
-      ? recentTicks.map((t) => t.equity)
-      : recentTicks.map((t) => t.multiplier);
+      ? recentTicks.map((t) => (Number.isFinite(t.equity) ? t.equity : 500))
+      : recentTicks.map((t) => (Number.isFinite(t.multiplier) ? t.multiplier : 1.0));
 
-  const minVal = values.length > 0 ? Math.min(...values, chartMode === 'MULTIPLIER' ? 1.0 : 200) : 1.0;
-  const maxVal = values.length > 0 ? Math.max(...values, chartMode === 'MULTIPLIER' ? Math.max(targetMultiplier, 2.0) : 300) : 2.0;
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
 
-  const range = maxVal - minVal || 1;
+  const minVal = Number.isFinite(rawMin)
+    ? chartMode === 'MULTIPLIER'
+      ? Math.max(1.0, rawMin)
+      : rawMin
+    : 1.0;
+  const maxVal = Number.isFinite(rawMax)
+    ? chartMode === 'MULTIPLIER'
+      ? Math.max(targetMultiplier || 2.0, rawMax, 2.0)
+      : Math.max(rawMax, minVal + 10)
+    : 2.0;
+
+  const range = Math.max(0.01, maxVal - minVal);
 
   const getX = (idx: number) => {
     if (recentTicks.length <= 1) return padding.left;
@@ -54,7 +66,8 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   };
 
   const getY = (val: number) => {
-    const clamped = Math.min(maxVal, Math.max(minVal, val));
+    const safeNum = Number.isFinite(val) ? val : minVal;
+    const clamped = Math.min(maxVal, Math.max(minVal, safeNum));
     const normalized = (clamped - minVal) / range;
     return height - padding.bottom - normalized * innerHeight;
   };
@@ -62,19 +75,19 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   // Generate path
   const points = recentTicks.map((t, idx) => {
     const val = chartMode === 'EQUITY_PNL' ? t.equity : t.multiplier;
-    return `${getX(idx)},${getY(val)}`;
+    return `${getX(idx).toFixed(1)},${getY(val).toFixed(1)}`;
   });
 
   const pathD = points.length > 0 ? `M ${points.join(' L ')}` : '';
   const areaD =
     points.length > 0
-      ? `M ${getX(0)},${height - padding.bottom} L ${points.join(' L ')} L ${getX(
+      ? `M ${getX(0).toFixed(1)},${height - padding.bottom} L ${points.join(' L ')} L ${getX(
           recentTicks.length - 1
-        )},${height - padding.bottom} Z`
+        ).toFixed(1)},${height - padding.bottom} Z`
       : '';
 
   // Current Target Multiplier horizontal line in Multiplier mode
-  const targetY = chartMode === 'MULTIPLIER' ? getY(targetMultiplier) : null;
+  const targetY = chartMode === 'MULTIPLIER' && Number.isFinite(targetMultiplier) ? getY(targetMultiplier) : null;
 
   return (
     <div className="bg-[#0b0f19] border border-slate-800 rounded-xl p-3 shadow-2xl flex flex-col gap-2 relative">
@@ -125,12 +138,12 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           <span>{unrealizedPnL >= 0 ? '+' : ''}${unrealizedPnL.toFixed(2)}</span>
           {isFlying && (
             <span className="text-[10px] px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-300">
-              +{((currentMultiplier - 1.0) * 100).toFixed(0)}%
+              +{Math.max(0, (currentMultiplier - 1.0) * 100).toFixed(0)}%
             </span>
           )}
         </div>
         <div className="text-[10px] text-slate-500">
-          Stake: ${currentStake.toFixed(2)} &bull; Target: {targetMultiplier.toFixed(2)}x
+          Stake: ${(currentStake || 0).toFixed(2)} &bull; Target: {(targetMultiplier || 1.5).toFixed(2)}x
         </div>
       </div>
 
@@ -177,7 +190,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
           })}
 
           {/* Target Cashout Line in Multiplier mode */}
-          {targetY !== null && (
+          {targetY !== null && Number.isFinite(targetY) && (
             <g>
               <line
                 x1={padding.left}
@@ -197,7 +210,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
                 fontWeight="bold"
                 fontFamily="monospace"
               >
-                AI TARGET: {targetMultiplier.toFixed(2)}x
+                AI TARGET: {(targetMultiplier || 1.5).toFixed(2)}x
               </text>
             </g>
           )}

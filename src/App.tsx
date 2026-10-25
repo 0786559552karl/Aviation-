@@ -9,7 +9,6 @@ import {
   TradeOrder,
   TickDataPoint,
   TradingStats,
-  AIRegime,
 } from './types/aviator';
 import { AIAutonomousEngine } from './engine/aiController';
 import {
@@ -27,10 +26,10 @@ import { MultiplierBar } from './components/MultiplierBar';
 import { ManualBetPanel } from './components/ManualBetPanel';
 
 const INITIAL_BALANCE = 500.0;
-const BETTING_SECONDS = 3.0;
+const BETTING_SECONDS = 3.5;
 
 export default function App() {
-  // Master 24/7 AI Engine Active Switch
+  // Master 24/7 AI Engine Active Switch - ALWAYS active, NEVER quits
   const [is247Active, setIs247Active] = useState<boolean>(true);
   const [simulationSpeed, setSimulationSpeed] = useState<number>(1);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -38,9 +37,9 @@ export default function App() {
   // Bankroll & Stats
   const [bankroll, setBankroll] = useState<number>(INITIAL_BALANCE);
   const [peakBalance, setPeakBalance] = useState<number>(INITIAL_BALANCE);
-  const [uptimeSeconds, setUptimeSeconds] = useState<number>(142); // starts with active session uptime
+  const [uptimeSeconds, setUptimeSeconds] = useState<number>(240);
 
-  // Game Engine State
+  // Game Engine Visual States
   const [roundNumber, setRoundNumber] = useState<number>(1);
   const [phase, setPhase] = useState<'BETTING' | 'FLYING' | 'CRASHED'>('BETTING');
   const [countdownRemaining, setCountdownRemaining] = useState<number>(BETTING_SECONDS);
@@ -61,7 +60,7 @@ export default function App() {
     calculatedStake: 10.0,
     confidenceScore: 82,
     riskIndex: 5,
-    rationale: 'Initializing neural allocation engine...',
+    rationale: 'Autonomous neural allocation engine ready. 24/7 continuous operation active.',
     lossStreak: 0,
     winStreak: 1,
     recentWinRate: 55,
@@ -88,20 +87,58 @@ export default function App() {
     { timestamp: Date.now() - 1000, timeLabel: '00:03', multiplier: 1.3, unrealizedPnL: 3.0, equity: 503 },
   ]);
 
+  // Stable Refs to completely eliminate React dependency tearing and prevent loop stopping
+  const bankrollRef = useRef<number>(bankroll);
+  bankrollRef.current = bankroll;
+
+  const ordersRef = useRef<TradeOrder[]>(orders);
+  ordersRef.current = orders;
+
+  const consecutiveLossesRef = useRef<number>(consecutiveLosses);
+  consecutiveLossesRef.current = consecutiveLosses;
+
+  const consecutiveWinsRef = useRef<number>(consecutiveWins);
+  consecutiveWinsRef.current = consecutiveWins;
+
+  const multiplierHistoryRef = useRef<number[]>(multiplierHistory);
+  multiplierHistoryRef.current = multiplierHistory;
+
+  const activeStakeRef = useRef<number>(activeStake);
+  activeStakeRef.current = activeStake;
+
+  const activeTargetRef = useRef<number>(activeTarget);
+  activeTargetRef.current = activeTarget;
+
+  const simulationSpeedRef = useRef<number>(simulationSpeed);
+  simulationSpeedRef.current = simulationSpeed;
+
+  const is247ActiveRef = useRef<boolean>(is247Active);
+  is247ActiveRef.current = is247Active;
+
+  const roundNumberRef = useRef<number>(roundNumber);
+  roundNumberRef.current = roundNumber;
+
+  const aiAnalysisRef = useRef<AIAnalysisState>(aiAnalysis);
+  aiAnalysisRef.current = aiAnalysis;
+
+  const manualBetRef = useRef<{ amount: number; target: number } | null>(manualBet);
+  manualBetRef.current = manualBet;
+
+  const manualCashedOutRef = useRef<boolean>(manualCashedOut);
+  manualCashedOutRef.current = manualCashedOut;
+
   // Sound sync
   useEffect(() => {
     sounds.enabled = soundEnabled;
   }, [soundEnabled]);
 
-  // 24/7 Uptime clock timer
+  // 24/7 Real-Time Uptime Clock
   useEffect(() => {
     const timer = setInterval(() => {
-      if (is247Active) {
-        setUptimeSeconds((prev) => prev + 1);
-      }
+      setUptimeSeconds((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, [is247Active]);
+  }, []);
 
   const formatUptime = (sec: number) => {
     const hrs = Math.floor(sec / 3600);
@@ -112,26 +149,37 @@ export default function App() {
       .padStart(2, '0')}`;
   };
 
-  // Compute AI Analysis for the Upcoming Round
-  const evaluateNextRoundAI = useCallback(() => {
-    const analysis = aiEngineRef.current.analyzeAndPlanRound(
-      bankroll,
-      orders,
-      consecutiveLosses,
-      consecutiveWins,
-      multiplierHistory
-    );
-    setAiAnalysis(analysis);
-    setActiveStake(analysis.calculatedStake);
-    setActiveTarget(analysis.targetMultiplier);
-    return analysis;
-  }, [bankroll, orders, consecutiveLosses, consecutiveWins, multiplierHistory]);
+  // Automated Bankroll Safety Reserve Vault:
+  // If bankroll drops below $15, auto-injects $500 reserve so the 24/7 bot NEVER stops or runs out of money!
+  const ensureLiquidity = useCallback(() => {
+    if (bankrollRef.current < 15.0) {
+      const rebalanceAmount = 500.0;
+      setBankroll((b) => Number((b + rebalanceAmount).toFixed(2)));
+      bankrollRef.current = bankrollRef.current + rebalanceAmount;
+    }
+  }, []);
 
-  // Main 24/7 Autonomous Game Engine Loop
+  // Compute AI Analysis for the upcoming round
+  const planNextRound = useCallback(() => {
+    ensureLiquidity();
+    const plan = aiEngineRef.current.analyzeAndPlanRound(
+      bankrollRef.current,
+      ordersRef.current,
+      consecutiveLossesRef.current,
+      consecutiveWinsRef.current,
+      multiplierHistoryRef.current
+    );
+    setAiAnalysis(plan);
+    setActiveStake(plan.calculatedStake);
+    setActiveTarget(plan.targetMultiplier);
+    return plan;
+  }, [ensureLiquidity]);
+
+  // Master Non-Stop Game Engine Loop (Never Quits, Continuous Real-Time)
   useEffect(() => {
     let animId: number;
-    let flightStart = 0;
-    let countdownInterval: NodeJS.Timeout | null = null;
+    let loopInterval: NodeJS.Timeout | null = null;
+    let nextRoundTimeout: NodeJS.Timeout | null = null;
 
     if (phase === 'BETTING') {
       const nextCrash = generateCrashMultiplier();
@@ -142,90 +190,109 @@ export default function App() {
       setCashedOutMult(null);
       setUnrealizedPnL(0);
 
-      // AI prepares parameters for this round
-      if (is247Active) {
-        const plan = evaluateNextRoundAI();
-        // Deduct stake from bankroll at entry
+      // AI calculates target & stake and commits order
+      const plan = planNextRound();
+      if (is247ActiveRef.current) {
         setBankroll((prev) => {
           const next = Number(Math.max(1, prev - plan.calculatedStake).toFixed(2));
+          bankrollRef.current = next;
           return next;
         });
         sounds.playBetPlaced();
       }
 
-      // Countdown window
+      // Real-time countdown
       const startTime = Date.now();
-      const durationMs = (BETTING_SECONDS * 1000) / simulationSpeed;
+      const durationMs = (BETTING_SECONDS * 1000) / simulationSpeedRef.current;
 
-      countdownInterval = setInterval(() => {
+      loopInterval = setInterval(() => {
         const elapsed = Date.now() - startTime;
-        const remain = Math.max(0, (durationMs - elapsed) / 1000) * simulationSpeed;
+        const remain = Math.max(0, (durationMs - elapsed) / 1000) * simulationSpeedRef.current;
         setCountdownRemaining(remain);
 
         if (remain <= 0) {
-          if (countdownInterval) clearInterval(countdownInterval);
+          if (loopInterval) clearInterval(loopInterval);
           setPhase('FLYING');
         }
-      }, 50);
+      }, 100);
     } else if (phase === 'FLYING') {
-      flightStart = performance.now();
+      const flightStart = performance.now();
       let hasCrashed = false;
       let cashedThisRound = false;
+      let lastStateUpdate = 0;
+      let lastTickUpdate = 0;
 
+      // Real-time flight loop: 60fps physics, throttled React state to prevent browser crash
       const loop = (now: number) => {
         if (hasCrashed) return;
 
         const elapsedSec = (now - flightStart) / 1000;
-        const mult = calculateCurrentMultiplier(elapsedSec, simulationSpeed);
-        setCurrentMultiplier(mult);
+        const mult = calculateCurrentMultiplier(elapsedSec, simulationSpeedRef.current);
 
-        // Per-second / tick floating PnL calculation
-        const floating = is247Active ? Number((activeStake * (mult - 1.0)).toFixed(2)) : 0;
-        setUnrealizedPnL(floating);
+        // Throttle React state update to ~15 times/sec (every 65ms)
+        // Keeps UI completely responsive while eliminating 'Maximum update depth exceeded' white screen
+        if (now - lastStateUpdate >= 65) {
+          lastStateUpdate = now;
+          setCurrentMultiplier(mult);
 
-        // Append real-time tick to per-second chart
-        const nowMs = Date.now();
-        const dateObj = new Date(nowMs);
-        const timeLabel = `${dateObj.getMinutes().toString().padStart(2, '0')}:${dateObj
-          .getSeconds()
-          .toString()
-          .padStart(2, '0')}`;
+          const floating = is247ActiveRef.current
+            ? Number((activeStakeRef.current * (mult - 1.0)).toFixed(2))
+            : 0;
+          setUnrealizedPnL(floating);
+        }
 
-        setTicks((prev) => [
-          ...prev.slice(-60),
-          {
-            timestamp: nowMs,
-            timeLabel,
-            multiplier: mult,
-            unrealizedPnL: floating,
-            equity: Number((bankroll + activeStake + floating).toFixed(2)),
-          },
-        ]);
+        // Record real-time chart tick every 500ms
+        if (now - lastTickUpdate >= 500) {
+          lastTickUpdate = now;
+          const nowMs = Date.now();
+          const dateObj = new Date(nowMs);
+          const timeLabel = `${dateObj.getMinutes().toString().padStart(2, '0')}:${dateObj
+            .getSeconds()
+            .toString()
+            .padStart(2, '0')}`;
+          const floating = is247ActiveRef.current
+            ? Number((activeStakeRef.current * (mult - 1.0)).toFixed(2))
+            : 0;
 
-        // AI DYNAMIC CASHOUT TRIGGER (1.12x when losses, 1.5x-1.7x medium, up to 2.0x wins)
-        if (is247Active && !cashedThisRound && mult >= activeTarget) {
+          setTicks((prev) => [
+            ...prev.slice(-50),
+            {
+              timestamp: nowMs,
+              timeLabel,
+              multiplier: mult,
+              unrealizedPnL: floating,
+              equity: Number((bankrollRef.current + activeStakeRef.current + floating).toFixed(2)),
+            },
+          ]);
+        }
+
+        // DYNAMIC CASHOUT:
+        // 1.12x on heavy losses | 1.50x-1.70x on medium | up to 2.00x on win streaks
+        if (is247ActiveRef.current && !cashedThisRound && mult >= activeTargetRef.current) {
           cashedThisRound = true;
-          const realizedProfit = Number((activeStake * (activeTarget - 1.0)).toFixed(2));
-          const totalReturn = activeStake + realizedProfit;
+          const target = activeTargetRef.current;
+          const stake = activeStakeRef.current;
+          const realizedProfit = Number((stake * (target - 1.0)).toFixed(2));
+          const totalReturn = stake + realizedProfit;
 
           setBankroll((prev) => {
             const newBal = Number((prev + totalReturn).toFixed(2));
+            bankrollRef.current = newBal;
             setPeakBalance((pk) => Math.max(pk, newBal));
 
-            // Record execution order
             const newOrder: TradeOrder = {
-              id: `ord-${roundNumber}-${Date.now()}`,
-              orderNumber: roundNumber,
+              id: `ord-${roundNumberRef.current}-${Date.now()}`,
+              orderNumber: roundNumberRef.current,
               timestamp: Date.now(),
               timeFormatted: new Date().toLocaleTimeString(),
               side: 'BUY_LONG',
-              stake: activeStake,
-              targetMultiplier: activeTarget,
+              stake: stake,
+              targetMultiplier: target,
               exitMultiplier: mult,
               realizedPnL: realizedProfit,
-              realizedPnLPercent: Number(((activeTarget - 1.0) * 100).toFixed(1)),
+              realizedPnLPercent: Number(((target - 1.0) * 100).toFixed(1)),
               status: 'PROFIT_EXIT',
-              regime: aiAnalysis.regime,
+              regime: aiAnalysisRef.current.regime,
               bankrollAfter: newBal,
             };
             setOrders((ords) => [newOrder, ...ords]);
@@ -236,58 +303,68 @@ export default function App() {
           setProfitWon(realizedProfit);
           setCashedOutMult(mult);
           setConsecutiveWins((w) => w + 1);
+          consecutiveWinsRef.current = consecutiveWinsRef.current + 1;
           setConsecutiveLosses(0);
+          consecutiveLossesRef.current = 0;
           sounds.playCashout();
         }
 
         // Manual Bet Cashout Check
-        if (manualBet && !manualCashedOut && mult >= manualBet.target) {
-          const mProfit = manualBet.amount * (manualBet.target - 1.0);
-          setBankroll((prev) => Number((prev + manualBet.amount + mProfit).toFixed(2)));
+        if (manualBetRef.current && !manualCashedOutRef.current && mult >= manualBetRef.current.target) {
+          const mProfit = manualBetRef.current.amount * (manualBetRef.current.target - 1.0);
+          setBankroll((prev) => Number((prev + manualBetRef.current!.amount + mProfit).toFixed(2)));
           setManualCashedOut(true);
           sounds.playCashout();
         }
 
-        // Crash trigger
+        // Crash Point Trigger
         if (mult >= crashPoint) {
           hasCrashed = true;
           setPhase('CRASHED');
+          setCurrentMultiplier(crashPoint);
           sounds.playCrash();
           setUnrealizedPnL(0);
 
-          // If AI did not cash out before crash -> Loss
-          if (is247Active && !cashedThisRound) {
+          // Record Loss if not cashed out
+          if (is247ActiveRef.current && !cashedThisRound) {
             setConsecutiveLosses((l) => l + 1);
+            consecutiveLossesRef.current = consecutiveLossesRef.current + 1;
             setConsecutiveWins(0);
+            consecutiveWinsRef.current = 0;
 
             const newOrder: TradeOrder = {
-              id: `ord-${roundNumber}-loss-${Date.now()}`,
-              orderNumber: roundNumber,
+              id: `ord-${roundNumberRef.current}-loss-${Date.now()}`,
+              orderNumber: roundNumberRef.current,
               timestamp: Date.now(),
               timeFormatted: new Date().toLocaleTimeString(),
               side: 'BUY_LONG',
-              stake: activeStake,
-              targetMultiplier: activeTarget,
+              stake: activeStakeRef.current,
+              targetMultiplier: activeTargetRef.current,
               exitMultiplier: crashPoint,
-              realizedPnL: -activeStake,
+              realizedPnL: -activeStakeRef.current,
               realizedPnLPercent: -100,
               status: 'LIQUIDATED',
-              regime: aiAnalysis.regime,
-              bankrollAfter: bankroll,
+              regime: aiAnalysisRef.current.regime,
+              bankrollAfter: bankrollRef.current,
             };
             setOrders((ords) => [newOrder, ...ords]);
           }
 
-          // Update multiplier ribbon
-          setMultiplierHistory((hist) => [crashPoint, ...hist.slice(0, 30)]);
+          // Update recent multiplier tape
+          setMultiplierHistory((hist) => {
+            const updated = [crashPoint, ...hist.slice(0, 30)];
+            multiplierHistoryRef.current = updated;
+            return updated;
+          });
 
-          // Continuous 24/7 autonomous transition to next round
-          setTimeout(() => {
+          // CONTINUOUS 24/7 RE-ENTRY: Never quits, automatically transitions to next round!
+          nextRoundTimeout = setTimeout(() => {
             setRoundNumber((r) => r + 1);
+            roundNumberRef.current = roundNumberRef.current + 1;
             setManualBet(null);
             setManualCashedOut(false);
             setPhase('BETTING');
-          }, 2400 / simulationSpeed);
+          }, 2200 / simulationSpeedRef.current);
 
           return;
         }
@@ -299,10 +376,11 @@ export default function App() {
     }
 
     return () => {
-      if (countdownInterval) clearInterval(countdownInterval);
+      if (loopInterval) clearInterval(loopInterval);
+      if (nextRoundTimeout) clearTimeout(nextRoundTimeout);
       if (animId) cancelAnimationFrame(animId);
     };
-  }, [phase, crashPoint, simulationSpeed, is247Active, activeTarget, activeStake, evaluateNextRoundAI]);
+  }, [phase, crashPoint, planNextRound]);
 
   // Financial Stats computation
   const totalPnL = bankroll - INITIAL_BALANCE;
@@ -374,7 +452,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#070a12] text-slate-100 flex flex-col font-sans selection:bg-rose-500 selection:text-white">
-      {/* Financial Trading App Header */}
+      {/* 24/7 Always Active Financial Header */}
       <TradingHeader
         stats={tradingStats}
         currentMultiplier={currentMultiplier}
@@ -386,7 +464,7 @@ export default function App() {
         onToggle247={() => setIs247Active((prev) => !prev)}
       />
 
-      {/* Main Terminal Grid */}
+      {/* Main Terminal Workspace */}
       <main className="flex-1 max-w-[1600px] w-full mx-auto p-3 md:p-4 flex flex-col gap-3">
         {/* Top Multiplier Tape Ribbon */}
         <MultiplierBar
@@ -395,7 +473,7 @@ export default function App() {
           averageThreshold={2.0}
         />
 
-        {/* 2-Column Trading Workspace */}
+        {/* 2-Column Trading Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
           {/* Left Column: Visual Canvas & Per-Second Trading Graph */}
           <div className="lg:col-span-8 flex flex-col gap-3">
@@ -453,7 +531,7 @@ export default function App() {
             {/* Trading Performance KPI Matrix */}
             <div className="bg-[#0b0f19] border border-slate-800 rounded-xl p-3 shadow-xl font-mono text-xs flex flex-col gap-2">
               <div className="text-[10px] text-slate-400 uppercase tracking-wider border-b border-slate-800 pb-1.5 flex items-center justify-between">
-                <span>SESSION PERFORMANCE MATRIX</span>
+                <span>24/7 CONTINUOUS PERFORMANCE AUDIT</span>
                 <span className="text-emerald-400 font-bold">{orders.length} Rounds Executed</span>
               </div>
               <div className="grid grid-cols-2 gap-2 text-[11px]">
@@ -478,6 +556,15 @@ export default function App() {
                   <div className="text-[9px] text-slate-400">ATH Balance</div>
                 </div>
               </div>
+
+              {/* Infinite Execution Guarantee Badge */}
+              <div className="mt-1 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
+                <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block" />
+                  PERSISTENT ENGINE: NEVER QUITS
+                </span>
+                <span>Auto-Rebalancing Active</span>
+              </div>
             </div>
           </div>
         </div>
@@ -489,10 +576,10 @@ export default function App() {
       {/* Terminal Footer */}
       <footer className="w-full bg-[#070a12] border-t border-slate-800/80 px-4 py-2 flex items-center justify-between text-[11px] text-slate-500 font-mono">
         <div>
-          AVTR Autonomous 24/7 Quant Engine &bull; Algorithmic Execution Active
+          AVTR 24/7 Autonomous Algorithmic Engine &bull; Non-Stop Real-Time Execution
         </div>
         <div>
-          Server Latency: <span className="text-emerald-400">14ms</span> &bull; Feed: <span className="text-cyan-400">100ms Ticks</span>
+          Execution Loop: <span className="text-emerald-400 font-bold">CONTINUOUS</span> &bull; Feed: <span className="text-cyan-400 font-bold">REAL TIME</span>
         </div>
       </footer>
     </div>
